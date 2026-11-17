@@ -1,0 +1,84 @@
+# 上流（azooKey/azooKey-Desktop の main）の更新を検出し、feature/shift-english との互換性を確認する。
+#
+# - 週1回と手動実行で動く。スケジュール実行・手動実行は既定ブランチ上のワークフローだけが対象なので、
+#   このフォークの既定ブランチは feature/shift-english にしている。
+# - 上流に新しいコミットがあれば、ランナー上だけで rebase してから Core のテストとアプリのビルドを行う。
+#   rebase・merge・push はリポジトリに書き戻さない（読み取り権限のみ）。
+# - 失敗した場合（rebase の衝突、テストやビルドの失敗）はジョブが失敗し、GitHub の通知で気づける。
+name: Upstream compatibility check
+
+on:
+  schedule:
+    - cron: "0 18 * * 0" # 毎週月曜 03:00 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Rebase onto upstream main and test
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shift-english
+          fetch-depth: 0
+          submodules: true
+
+      - name: Detect upstream updates
+        id: detect
+        run: |
+          git remote add upstream https://github.com/azooKey/azooKey-Desktop.git
+          git fetch --no-tags upstream main
+          base=$(git merge-base HEAD upstream/main)
+          count=$(git rev-list --count "$base..upstream/main")
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 上流 main の更新"
+            echo ""
+            echo "- 上流 main: \`$(git rev-parse --short upstream/main)\`"
+            echo "- feature/shift-english のベース: \`$(git rev-parse --short "$base")\`"
+            echo "- 未取り込みのコミット数: **$count**"
+            if [ "$count" -gt 0 ]; then
+              echo ""
+              echo '```'
+              git log --oneline "$base..upstream/main" | head -50
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rebase onto upstream main (runner only)
+        if: steps.detect.outputs.count != '0'
+        run: |
+          git config user.name "upstream-check"
+          git config user.email "upstream-check@users.noreply.github.com"
+          if ! git rebase upstream/main; then
+            echo "::error::上流 main への rebase で衝突しました。ローカルで手動の取り込みが必要です。"
+            git rebase --abort
+            exit 1
+          fi
+          git submodule update --init
+          echo "- rebase: 成功（\`$(git rev-parse --short HEAD)\`）" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Test Core
+        if: steps.detect.outputs.count != '0'
+        run: swift test --package-path Core
+
+      - name: Build azooKeyMac (Release, unsigned)
+        if: steps.detect.outputs.count != '0'
+        run: |
+          xcodebuild -project azooKeyMac.xcodeproj -scheme azooKeyMac -configuration Release \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.detect.outputs.count }}" = "0" ]; then
+            echo "- 上流に未取り込みの更新はありません" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- 結果: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          fi

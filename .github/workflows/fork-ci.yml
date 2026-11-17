@@ -1,0 +1,72 @@
+# フォーク用 CI（azooKey Shift）
+#
+# 上流の swift.yml（macos-15 / Xcode 16.3 / Ubuntu）はそのまま残し、ここでは README の要件
+# （Xcode 26.1 以上）に合う macos-26 ランナーの Xcode で検証する。
+# Xcode 16.3 の SDK には FoundationModels がないため、上流の CI では AI バックエンドの一部が
+# コンパイルされない。このワークフローは配布物と同じ構成でビルドする。
+#
+# 署名はしない。証明書・チームID・Secrets は使わない。
+name: Fork CI
+
+on:
+  push:
+    branches: [feature/shift-english]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swiftlint:
+    name: SwiftLint (strict)
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: command -v swiftlint || brew install swiftlint
+      - name: Run SwiftLint
+        run: |
+          swiftlint version
+          swiftlint --quiet --strict
+
+  core:
+    name: Core build and test
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Build Core
+        run: swift build --package-path Core --build-tests
+      - name: Test Core
+        run: swift test --package-path Core --skip-build
+
+  app:
+    name: azooKeyMac Release build (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Show toolchain
+        run: xcodebuild -version
+      - name: Build
+        run: |
+          xcodebuild \
+            -project azooKeyMac.xcodeproj \
+            -scheme azooKeyMac \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
