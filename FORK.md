@@ -28,7 +28,9 @@
 |---|---|---|
 | `fork-ci.yml` | `feature/shift-english` への push、手動 | macos-26（Xcode 26 系）で SwiftLint `--strict`、Core のビルドとテスト、Release ビルド（署名なし） |
 | `upstream-check.yml` | 毎週、手動 | 上流 main の更新を検出し、更新があればランナー上だけで rebase して、テストとビルドを行う（書き戻しはしない） |
-| `swift.yml`（上流のもの） | push | 上流の CI（macos-15 / Xcode 16.3、Ubuntu）。変更していない |
+| `swift.yml`（上流のもの） | （このフォークでは無効） | 上流の CI（macos-15 / Xcode 16.3、Ubuntu）。ファイルは変更していない |
+
+上流の `swift.yml` は、このフォークの Actions 設定で無効にしています（macos-15 ランナーの混雑でジョブが開始されないことがあり、確認内容は `fork-ci.yml` がより新しい Xcode で担っているため）。ファイル自体は変更していないので、上流の更新とは衝突しません。
 
 どのワークフローも署名はせず、証明書や Secrets を使いません。
 
