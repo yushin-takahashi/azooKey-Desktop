@@ -361,7 +361,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             inputLanguage: self.inputLanguage,
             liveConversionEnabled: Config.LiveConversion().value,
             enableDebugWindow: Config.DebugWindow().value,
-            enableSuggestion: aiBackendEnabled
+            enableSuggestion: aiBackendEnabled,
+            // Shift単独のときだけ設定を読み、通常の打鍵では設定の読み出しを増やさない
+            temporaryEnglishEnabled: eventModifiers == [.shift] && InputState.isTemporaryEnglishInputAvailable(
+                inputStyle: Config.InputStyle().value,
+                enabledByConfig: Config.TemporaryEnglishInputByShift().value
+            )
         )
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
     }
