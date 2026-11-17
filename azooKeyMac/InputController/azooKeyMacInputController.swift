@@ -174,6 +174,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     @MainActor
     override func deactivateServer(_ sender: Any!) {
+        // アプリ切り替えなどで commitComposition を経ずに非活性化された場合も、入力済みの英字を確定して失わないようにする
+        self.commitTemporaryEnglishIfNeeded(client: sender as? IMKTextInput)
         self.segmentsManager.deactivate(flushLearningData: false)
         (NSApplication.shared.delegate as? AppDelegate)?.scheduleLearningDataCommit()
         self.inputState = .none
@@ -190,6 +192,10 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         // マウスクリック等でOSがMarkedTextを確定した場合、IME側からは消せないため
         if case .unicodeInput = self.inputState {
             self.inputState = .none
+            return
+        }
+        // 一時英字入力中の場合は入力済みの英字を確定する
+        if self.commitTemporaryEnglishIfNeeded(client: sender as? IMKTextInput) {
             return
         }
         if self.segmentsManager.isEmpty {
@@ -221,6 +227,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 // メニューバーやshortcut経由の切り替えに対応する。
                 // composing中でも英数キーMarkedTextを保ったまま英語入力へ移る。
                 if self.inputLanguage == .japanese {
+                    // 一時英字入力中なら、英語モードへ移る前に入力済みの英字を確定する
+                    self.commitTemporaryEnglishIfNeeded(client: (sender as? IMKTextInput) ?? self.client())
                     self.inputLanguage = .english
                     self.segmentsManager.stopJapaneseInput()
                     self.refreshCandidateWindow()
@@ -369,6 +377,20 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             )
         )
         return handleClientAction(clientAction, clientActionCallback: clientActionCallback, client: client)
+    }
+
+    /// 一時英字入力中であれば、入力済みの英字を確定して `.none` に戻す
+    /// - Returns: 確定処理を行った場合は `true`
+    @MainActor
+    @discardableResult
+    private func commitTemporaryEnglishIfNeeded(client: IMKTextInput?) -> Bool {
+        guard case .temporaryEnglish(let text) = self.inputState else {
+            return false
+        }
+        // 先に状態を戻し、同じ英字が二重に確定されないようにする
+        self.inputState = .none
+        client?.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        return true
     }
 
     private var inputStyle: InputStyle {
