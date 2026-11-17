@@ -68,4 +68,11 @@ extension Config {
         static let `default` = true
         public static let key: String = "dev.ensan.inputmethod.azooKeyMac.preference.includeContextInAITransform"
     }
+    /// Shift+英字で一時的な英字入力を始める設定
+    /// 設定画面には出さず、不具合時に `defaults write` で無効化するためのスイッチとして使う
+    public struct TemporaryEnglishInputByShift: BoolConfigItem {
+        public init() {}
+        static let `default` = true
+        public static let key: String = "dev.ensan.inputmethod.azooKeyMac.preference.temporaryEnglishInputByShift"
+    }
 }
