@@ -710,7 +710,7 @@ public final class SegmentsManager {
 
     public func getCurrentCandidateWindow(inputState: InputState) -> CandidateWindow {
         switch inputState {
-        case .none, .previewing, .replaceSuggestion, .attachDiacritic, .unicodeInput:
+        case .none, .previewing, .replaceSuggestion, .attachDiacritic, .unicodeInput, .temporaryEnglish:
             return .hidden
         case .composing:
             if !self.liveConversionEnabled, let firstCandidate = self.rawCandidates?.mainResults.first {
@@ -771,7 +771,7 @@ public final class SegmentsManager {
                 // 選択範囲なしの場合はconvertTargetを返す
                 (self.convertTarget, .inputCount(self.composingText.input.count))
             }
-        case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput:
+        case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput, .temporaryEnglish:
             (self.convertTarget, .inputCount(self.composingText.input.count))
         }
         let candidateText = transform(ruby)
@@ -796,7 +796,7 @@ public final class SegmentsManager {
         switch inputState {
         case .selecting:
             targetComposingText = self.composingText.prefixToCursorPosition()
-        case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput:
+        case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput, .temporaryEnglish:
             targetComposingText = self.composingText
         }
         let inputString = targetComposingText.input.map(\.piece).inputString(preferIntention: false)
@@ -1177,6 +1177,9 @@ public final class SegmentsManager {
                 text: [.init(content: displayText, focus: .none)],
                 selectionRange: NSRange(location: displayText.count, length: 0)
             )
+        case .temporaryEnglish(let text):
+            // 一時英字入力: 入力済みの英字をそのまま示す（変換はしない）
+            return MarkedText(text: [.init(content: text, focus: .none)], selectionRange: .notFound)
         }
     }
 }

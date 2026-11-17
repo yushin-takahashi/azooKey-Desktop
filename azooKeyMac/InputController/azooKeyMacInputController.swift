@@ -533,6 +533,15 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
                 self.segmentsManager.stopComposition()
             }
+        // Temporary English Input (Shift+英字)
+        case .enterTemporaryEnglishMode, .appendToTemporaryEnglish, .removeLastTemporaryEnglish, .cancelTemporaryEnglish:
+            // 状態遷移は clientActionCallback で、markedText の更新は refreshMarkedText で行われる
+            break
+        case .submitTemporaryEnglish(let text):
+            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        case .submitTemporaryEnglishAndSelectInputLanguage(let text, let language):
+            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.switchInputLanguage(language, client: client)
         // MARK: 特殊ケース
         case .consume:
             // 何もせず先に進む

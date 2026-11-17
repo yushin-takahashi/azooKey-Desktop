@@ -71,6 +71,15 @@ public enum ClientAction {
     case cancelUnicodeInput
     case submitSelectedCandidateAndEnterUnicodeInputMode
 
+    // Temporary English Input (Shift+英字)
+    // 入力済みの英字は InputState.temporaryEnglish が保持するため、enter/append/remove/cancel は状態遷移のみで表す
+    case enterTemporaryEnglishMode
+    case appendToTemporaryEnglish(String)
+    case removeLastTemporaryEnglish
+    case cancelTemporaryEnglish
+    case submitTemporaryEnglish(String)
+    case submitTemporaryEnglishAndSelectInputLanguage(String, InputLanguage)
+
     case stopComposition
 }
 

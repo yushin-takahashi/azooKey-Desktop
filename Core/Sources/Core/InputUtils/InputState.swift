@@ -9,6 +9,51 @@ public enum InputState: Sendable, Hashable {
     case selecting
     case replaceSuggestion
     case unicodeInput(String)
+    /// Shift+英字で始めた一時的な英字入力。入力済みの英字を保持する。
+    /// 英字はSegmentsManagerに渡さないため、かな漢字変換・ライブ変換・学習の対象にならない。
+    case temporaryEnglish(String)
+
+    private var isTemporaryEnglish: Bool {
+        if case .temporaryEnglish = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Shift+英字による一時英字入力を使える設定かどうか
+    /// - かな入力ではShiftが小書き文字などに使われ、カスタムテーブルは大文字を定義している可能性があるため、標準ローマ字とAZIKに限る
+    public static func isTemporaryEnglishInputAvailable(inputStyle: Config.InputStyle.Value, enabledByConfig: Bool) -> Bool {
+        guard enabledByConfig else {
+            return false
+        }
+        return switch inputStyle {
+        case .default, .defaultAZIK:
+            true
+        case .defaultKanaJIS, .defaultKanaUS, .custom:
+            false
+        }
+    }
+
+    /// Shift+英字（A-Z）で一時英字入力を開始する場合、その文字を返す
+    static func temporaryEnglishStartCharacter(
+        eventCore event: KeyEventCore,
+        userAction: UserAction,
+        inputLanguage: InputLanguage,
+        temporaryEnglishEnabled: Bool
+    ) -> String? {
+        guard temporaryEnglishEnabled,
+              inputLanguage == .japanese,
+              event.modifierFlags == [.shift],
+              case .input = userAction,
+              let characters = event.characters,
+              characters.unicodeScalars.count == 1,
+              let scalar = characters.unicodeScalars.first,
+              ("A"..."Z").contains(scalar) else {
+            return nil
+        }
+        return characters
+    }
 
     // この種のコードは複雑にしかならないので、lintを無効にする
     // swiftlint:disable:next cyclomatic_complexity
@@ -18,7 +63,8 @@ public enum InputState: Sendable, Hashable {
         inputLanguage: InputLanguage,
         liveConversionEnabled: Bool,
         enableDebugWindow: Bool,
-        enableSuggestion: Bool
+        enableSuggestion: Bool,
+        temporaryEnglishEnabled: Bool = false
     ) -> (ClientAction, ClientActionCallback) {
         if event.modifierFlags.contains(.command) {
             return (.fallthrough, .fallthrough)
@@ -27,20 +73,20 @@ public enum InputState: Sendable, Hashable {
             switch userAction {
             case .input, .deadKey, .backspace:
                 break
-            case .enter where self == .composing:
+            case .enter where self == .composing || self.isTemporaryEnglish:
                 break
-            case .tab where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .tab where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 break
-            case .navigation(let direction) where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .navigation(let direction) where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 switch direction {
                 case .up, .down, .left, .right:
                     return (.consume, .fallthrough)
                 }
-            case .escape where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .escape where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 return (.consume, .fallthrough)
-            case .英数 where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .英数 where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 return (.consume, .fallthrough)
-            case .かな where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .かな where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 return (.consume, .fallthrough)
             default:
                 return (.fallthrough, .fallthrough)
@@ -48,14 +94,23 @@ public enum InputState: Sendable, Hashable {
         }
         if event.modifierFlags.contains(.control) {
             switch userAction {
-            case .unknown where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion:
+            case .unknown where self == .composing || self == .previewing || self == .selecting || self == .replaceSuggestion || self.isTemporaryEnglish:
                 return (.consume, .fallthrough)
             default:
                 break
             }
         }
+        let temporaryEnglishStartCharacter = Self.temporaryEnglishStartCharacter(
+            eventCore: event,
+            userAction: userAction,
+            inputLanguage: inputLanguage,
+            temporaryEnglishEnabled: temporaryEnglishEnabled
+        )
         switch self {
         case .none:
+            if let temporaryEnglishStartCharacter {
+                return (.enterTemporaryEnglishMode, .transition(.temporaryEnglish(temporaryEnglishStartCharacter)))
+            }
             switch userAction {
             case .input(let string):
                 switch inputLanguage {
@@ -130,6 +185,10 @@ public enum InputState: Sendable, Hashable {
         case .composing:
             switch userAction {
             case .input(let string):
+                if let temporaryEnglishStartCharacter {
+                    // 表示中の未確定文字列を確定してから一時英字入力を始める
+                    return (.commitMarkedText, .transition(.temporaryEnglish(temporaryEnglishStartCharacter)))
+                }
                 return (.appendPieceToMarkedText(string), .fallthrough)
             case .number(let number):
                 return (.appendPieceToMarkedText([number.inputPiece]), .fallthrough)
@@ -207,6 +266,9 @@ public enum InputState: Sendable, Hashable {
         case .previewing:
             switch userAction {
             case .input(let string):
+                if let temporaryEnglishStartCharacter {
+                    return (.commitMarkedText, .transition(.temporaryEnglish(temporaryEnglishStartCharacter)))
+                }
                 return (.commitMarkedTextAndAppendPieceToMarkedText(string), .transition(.composing))
             case .number(let number):
                 return (.commitMarkedTextAndAppendPieceToMarkedText([number.inputPiece]), .transition(.composing))
@@ -267,6 +329,9 @@ public enum InputState: Sendable, Hashable {
                     return (.enableDebugWindow, .fallthrough)
                 } else if s == "D" && enableDebugWindow {
                     return (.disableDebugWindow, .fallthrough)
+                }
+                if let temporaryEnglishStartCharacter {
+                    return (.commitMarkedText, .transition(.temporaryEnglish(temporaryEnglishStartCharacter)))
                 }
                 // FIXME: ここの動作はmacOSの標準と異なる。具体的には、macOSの標準ではselectingをcomposingに戻して入力を継続する動きになる。
                 return (.commitMarkedTextAndAppendPieceToMarkedText(string), .transition(.composing))
@@ -416,6 +481,50 @@ public enum InputState: Sendable, Hashable {
             case .escape:
                 return (.cancelUnicodeInput, .transition(.none))
             case .英数, .かな, .tab, .forget, .function, .navigation, .editSegment, .suggest, .transformSelectedText, .deadKey, .startUnicodeInput, .unknown:
+                return (.consume, .fallthrough)
+            }
+        case .temporaryEnglish(let text):
+            switch userAction {
+            case .input(let pieces):
+                // 日本語用のintention（「、」「ー」など）ではなく、打鍵した文字そのものを使う
+                let input = pieces.inputString(preferIntention: false)
+                if input.isEmpty {
+                    return (.consume, .fallthrough)
+                }
+                return (.appendToTemporaryEnglish(input), .transition(.temporaryEnglish(text + input)))
+            case .number(let number):
+                return (.appendToTemporaryEnglish(number.inputString), .transition(.temporaryEnglish(text + number.inputString)))
+            case .space:
+                return (.appendToTemporaryEnglish(" "), .transition(.temporaryEnglish(text + " ")))
+            case .backspace:
+                if event.modifierFlags.contains(.option) {
+                    return (.consume, .fallthrough)
+                } else if text.count <= 1 {
+                    // 入力済みの英字がなくなったら一時英字入力を終える
+                    return (.cancelTemporaryEnglish, .transition(.none))
+                } else {
+                    return (.removeLastTemporaryEnglish, .transition(.temporaryEnglish(String(text.dropLast()))))
+                }
+            case .enter:
+                return (.submitTemporaryEnglish(text), .transition(.none))
+            case .escape:
+                return (.cancelTemporaryEnglish, .transition(.none))
+            case let .function(function):
+                switch function {
+                case .nine:
+                    let fullWidthText = text.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? text
+                    return (.submitTemporaryEnglish(fullWidthText), .transition(.none))
+                case .ten:
+                    return (.submitTemporaryEnglish(text), .transition(.none))
+                case .six, .seven, .eight:
+                    return (.consume, .fallthrough)
+                }
+            case .かな:
+                return (.submitTemporaryEnglish(text), .transition(.none))
+            case .英数:
+                return (.submitTemporaryEnglishAndSelectInputLanguage(text, .english), .transition(.none))
+            case .tab, .navigation, .editSegment, .forget, .suggest, .unknown, .deadKey, .startUnicodeInput, .transformSelectedText:
+                // 未確定の英字を残したままホストアプリに渡さない
                 return (.consume, .fallthrough)
             }
         }
